@@ -3,15 +3,17 @@
 package tree
 
 import (
+	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
-	ltree "github.com/charmbracelet/lipgloss/v2/tree"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	ltree "charm.land/lipgloss/v2/tree"
+	"github.com/charmbracelet/x/ansi"
 
-	"github.com/charmbracelet/bubbles/v2/help"
-	"github.com/charmbracelet/bubbles/v2/key"
-	"github.com/charmbracelet/bubbles/v2/viewport"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/viewport"
 )
 
 const spacebar = " "
@@ -214,12 +216,13 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 func (m Model) View() string {
 	treeView := m.viewport.View()
 
-	var help string
+	var sections []string
+	sections = append(sections, treeView)
 	if m.showHelp {
-		help = m.helpView()
+		sections = append(sections, m.helpView())
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, treeView, help)
+	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
 
 // SetScrollOff sets the minimal number of lines to keep visible above and below the selected node.
@@ -245,6 +248,7 @@ func (m *Model) SetCursorCharacter(character string) {
 // SetNodes sets the tree to the given root node.
 func (m *Model) SetNodes(t *Node) {
 	m.root = t
+	m.root.value = t.Value()
 	if m.enumerator != nil {
 		m.root.Enumerator(*m.enumerator)
 	}
@@ -254,10 +258,11 @@ func (m *Model) SetNodes(t *Node) {
 	m.setAttributes()
 	m.updateStyles()
 	m.updateViewport(0)
+	m.setRootStyles(m.styles)
 }
 
-// Additional key mappings for the full help view. This allows
-// you to add additional key mappings to the help menu without
+// SetAdditionalFullHelpKeys sets additional key mappings for the full help view.
+// This allows you to add additional key mappings to the help menu without
 // re-implementing the help component. Of course, you can also disable the
 // tree's help component and implement a new one if you need more
 // flexibility.
@@ -265,8 +270,8 @@ func (m *Model) SetAdditionalFullHelpKeys(val func() []key.Binding) {
 	m.additionalFullHelpKeys = val
 }
 
-// Additional key mappings for the short help view. This allows
-// you to add additional key mappings to the help menu without
+// SetAdditionalShortHelpKeys sets additional key mappings for the short help view.
+// This allows you to add additional key mappings to the help menu without
 // re-implementing the help component. Of course, you can also disable the
 // tree's help component and implement a new one if you need more
 // flexibility.
@@ -366,7 +371,7 @@ func (m *Model) updateViewport(movement int) {
 		lipgloss.JoinHorizontal(
 			lipgloss.Top,
 			cursor,
-			m.styles.TreeStyle.Render(m.root.String()),
+			m.styles.TreeStyle.Width(m.width).MaxWidth(m.width).Render(m.root.String()),
 		),
 	)
 
@@ -418,20 +423,51 @@ func (m *Model) SetStyles(styles Styles) {
 			return styles.RootNodeStyle
 		}
 	}
+	if styles.EnumeratorStyleFunc != nil {
+		styles.enumeratorFunc = styles.EnumeratorStyleFunc
+	} else {
+		styles.enumeratorFunc = func(_ Nodes, _ int) lipgloss.Style {
+			return styles.EnumeratorStyle
+		}
+	}
+	if styles.SelectedEnumeratorStyleFunc != nil {
+		styles.selectedEnumeratorFunc = styles.SelectedEnumeratorStyleFunc
+	} else {
+		styles.selectedEnumeratorFunc = func(_ Nodes, _ int) lipgloss.Style {
+			return styles.SelectedEnumeratorStyle
+		}
+	}
+	if styles.IndenterStyleFunc != nil {
+		styles.indenterFunc = styles.IndenterStyleFunc
+	} else {
+		styles.indenterFunc = func(_ Nodes, _ int) lipgloss.Style {
+			return styles.IndenterStyle
+		}
+	}
 
+	m.setRootStyles(styles)
+	m.styles = styles
+
+	// call SetSize as it takes into account width/height of the styles frame sizes
+	m.SetSize(m.width, m.height)
+	m.updateViewport(0)
+}
+
+func (m *Model) setRootStyles(styles Styles) {
 	if m.root != nil {
-		m.root.EnumeratorStyle(styles.EnumeratorStyle)
-		m.root.IndenterStyle(styles.IndenterStyle)
+		m.root.EnumeratorStyleFunc(func(children Nodes, i int) lipgloss.Style {
+			child := children.At(i)
+			return child.getEnumeratorStyle()
+		})
+		m.root.IndenterStyleFunc(func(children Nodes, i int) lipgloss.Style {
+			child := children.At(i)
+			return child.getIndenterStyle()
+		})
 		m.root.ItemStyleFunc(func(children Nodes, i int) lipgloss.Style {
 			child := children.At(i)
 			return child.getStyle()
 		})
 	}
-
-	m.styles = styles
-	// call SetSize as it takes into account width/height of the styles frame sizes
-	m.SetSize(m.width, m.height)
-	m.updateViewport(0)
 }
 
 // SetShowHelp shows or hides the help view.
@@ -464,7 +500,10 @@ func (m *Model) SetHeight(height int) {
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
-	m.root.tree.Width(width - lipgloss.Width(m.cursorView()) - m.styles.TreeStyle.GetHorizontalFrameSize())
+	if m.root != nil {
+		m.root.tree.Width(width - lipgloss.Width(m.cursorView()) -
+			m.styles.TreeStyle.GetHorizontalFrameSize())
+	}
 
 	m.viewport.SetWidth(width)
 	hv := 0
@@ -472,7 +511,7 @@ func (m *Model) SetSize(width, height int) {
 		hv = lipgloss.Height(m.helpView())
 	}
 	m.viewport.SetHeight(height - hv)
-	m.Help.Width = width
+	m.Help.SetWidth(width)
 }
 
 // ShortHelp returns bindings to show in the abbreviated help view.
@@ -582,10 +621,25 @@ func setYOffsets(t *Node) {
 	}
 }
 
+// ViewportYOffset returns the vertical offset of the tree's viewport.
+func (m *Model) ViewportYOffset() int {
+	return m.viewport.YOffset()
+}
+
+// SetViewportYOffset sets the vertical offset of the tree's viewport
+func (m *Model) SetViewportYOffset(yoffset int) {
+	m.viewport.SetYOffset(yoffset)
+}
+
 // YOffset returns the vertical offset of the selected node.
 // Useful for scrolling to the selected node using a viewport.
 func (m *Model) YOffset() int {
 	return m.yOffset
+}
+
+func (m *Model) SetYOffset(yoffset int) {
+	movement := yoffset - m.yOffset
+	m.updateViewport(movement)
 }
 
 // Node returns the item at the given yoffset.
@@ -601,26 +655,42 @@ func (m *Model) NodeAtCurrentOffset() *Node {
 // Enumerator sets the enumerator for the tree.
 func (m *Model) Enumerator(enumerator ltree.Enumerator) *Model {
 	m.enumerator = &enumerator
-	m.root.Enumerator(enumerator)
+	if m.root != nil {
+		m.root.Enumerator(enumerator)
+	}
 	return m
 }
 
 // Indenter sets the indenter for the tree.
 func (m *Model) Indenter(indenter ltree.Indenter) *Model {
 	m.indenter = &indenter
-	m.root.Indenter(indenter)
+	if m.root != nil {
+		m.root.Indenter(indenter)
+	}
 	return m
 }
 
 // Since the selected node changes, we need to capture m.yOffset in the
 // style function's closure again.
 func (m *Model) updateStyles() {
+	opts := m.getItemOpts()
 	if m.root != nil {
-		m.root.RootStyle(m.rootStyle())
+		m.root.opts = *opts
+		rs := m.rootStyle()
+		m.root.RootStyle(rs)
+
+		root := ""
+		switch val := m.root.value.(type) {
+		case fmt.Stringer:
+			root = rs.Render(val.String())
+		case string:
+			root = rs.Render(ansi.Strip(val))
+		}
+		root = lipgloss.JoinHorizontal(lipgloss.Left, m.root.Indicator(), root)
+		m.root.tree.SetValue(root)
 	}
 
 	items := m.AllNodes()
-	opts := m.getItemOpts()
 	for _, item := range items {
 		item.opts = *opts
 	}
@@ -636,11 +706,17 @@ func (m *Model) getItemOpts() *itemOptions {
 }
 
 func (m *Model) rootStyle() lipgloss.Style {
-	if m.root.yOffset == m.yOffset {
-		return m.styles.selectedNodeFunc(Nodes{m.root}, 0)
+	nodes := Nodes{m.root}
+	if m.root.yOffset == m.yOffset && m.styles.selectedNodeFunc != nil {
+		return m.styles.rootNodeFunc(nodes, 0).Inherit(
+			m.styles.selectedNodeFunc(Nodes{m.root}, 0))
 	}
 
-	return m.styles.rootNodeFunc(Nodes{m.root}, 0)
+	if m.styles.rootNodeFunc != nil {
+		return m.styles.rootNodeFunc(Nodes{m.root}, 0)
+	}
+
+	return lipgloss.NewStyle()
 }
 
 // findNode starts a DFS search for the node with the given yOffset

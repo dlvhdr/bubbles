@@ -1,13 +1,14 @@
 package textarea
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"unicode"
 
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/MakeNowJust/heredoc"
-	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -29,8 +30,8 @@ func TestVerticalScrolling(t *testing.T) {
 
 	view := textarea.View()
 
-	// The view should contain the first "line" of the input.
-	if !strings.Contains(view, "This is a really") {
+	// The view should contain the end of "line" of the input.
+	if !strings.Contains(view, "the text area.") {
 		t.Log(view)
 		t.Error("Text area did not render the input")
 	}
@@ -38,17 +39,19 @@ func TestVerticalScrolling(t *testing.T) {
 	// But we should be able to scroll to see the next line.
 	// Let's scroll down for each line to view the full input.
 	lines := []string{
+		"This is a really",
 		"long line that",
 		"should wrap around",
 		"the text area.",
 	}
+	textarea.viewport.GotoTop()
 	for _, line := range lines {
-		textarea.viewport.ScrollDown(1)
 		view = textarea.View()
 		if !strings.Contains(view, line) {
 			t.Log(view)
 			t.Error("Text area did not render the correct scrolled input")
 		}
+		textarea.viewport.ScrollDown(1)
 	}
 }
 
@@ -1032,7 +1035,9 @@ func TestView(t *testing.T) {
 		{
 			name: "set width with style",
 			modelFunc: func(m Model) Model {
-				m.Styles.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				s := m.Styles()
+				s.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				m.SetStyles(s)
 				m.Focus()
 
 				m.SetWidth(12)
@@ -1060,7 +1065,9 @@ func TestView(t *testing.T) {
 		{
 			name: "set width with style max width minus one",
 			modelFunc: func(m Model) Model {
-				m.Styles.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				s := m.Styles()
+				s.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				m.SetStyles(s)
 				m.Focus()
 
 				m.SetWidth(12)
@@ -1088,7 +1095,9 @@ func TestView(t *testing.T) {
 		{
 			name: "set width with style max width",
 			modelFunc: func(m Model) Model {
-				m.Styles.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				s := m.Styles()
+				s.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				m.SetStyles(s)
 				m.Focus()
 
 				m.SetWidth(12)
@@ -1116,7 +1125,9 @@ func TestView(t *testing.T) {
 		{
 			name: "set width with style max width plus one",
 			modelFunc: func(m Model) Model {
-				m.Styles.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				s := m.Styles()
+				s.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				m.SetStyles(s)
 				m.Focus()
 
 				m.SetWidth(12)
@@ -1144,7 +1155,9 @@ func TestView(t *testing.T) {
 		{
 			name: "set width without line numbers with style",
 			modelFunc: func(m Model) Model {
-				m.Styles.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				s := m.Styles()
+				s.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				m.SetStyles(s)
 				m.Focus()
 
 				m.ShowLineNumbers = false
@@ -1173,7 +1186,9 @@ func TestView(t *testing.T) {
 		{
 			name: "set width without line numbers with style max width minus one",
 			modelFunc: func(m Model) Model {
-				m.Styles.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				s := m.Styles()
+				s.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				m.SetStyles(s)
 				m.Focus()
 
 				m.ShowLineNumbers = false
@@ -1202,7 +1217,9 @@ func TestView(t *testing.T) {
 		{
 			name: "set width without line numbers with style max width",
 			modelFunc: func(m Model) Model {
-				m.Styles.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				s := m.Styles()
+				s.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				m.SetStyles(s)
 				m.Focus()
 
 				m.ShowLineNumbers = false
@@ -1231,7 +1248,9 @@ func TestView(t *testing.T) {
 		{
 			name: "set width without line numbers with style max width plus one",
 			modelFunc: func(m Model) Model {
-				m.Styles.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				s := m.Styles()
+				s.Focused.Base = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+				m.SetStyles(s)
 				m.Focus()
 
 				m.ShowLineNumbers = false
@@ -1671,11 +1690,208 @@ func TestView(t *testing.T) {
 				`),
 			},
 		},
+		{
+			name: "placeholder chinese character",
+			modelFunc: func(m Model) Model {
+				m.Placeholder = "输入消息..."
+				m.ShowLineNumbers = true
+				m.SetWidth(20)
+				return m
+			},
+			want: want{
+				view: heredoc.Doc(`
+					>   1 输入消息...
+					>
+					>
+					>
+					>
+					>
+
+				`),
+			},
+		},
+		{
+			name: "page up moves to beginning when near top",
+			modelFunc: func(m Model) Model {
+				m.ShowLineNumbers = true
+				m.SetHeight(4)
+				m.SetWidth(20)
+
+				lines := make([]string, 10)
+				for i := range 10 {
+					lines[i] = fmt.Sprintf("Line %d", i+1)
+				}
+				m.SetValue(strings.Join(lines, "\n"))
+				m.viewport.SetContent(m.view()) // force setting of viewport content.
+
+				m.row = 3
+				m.col = 0
+				m.viewport.SetYOffset(0)
+				m.PageUp()
+
+				return m
+			},
+			want: want{
+				view: heredoc.Doc(`
+					>   1 Line 1
+					>   2 Line 2
+					>   3 Line 3
+					>   4 Line 4
+				`),
+				cursorRow: 0,
+			},
+		},
+		{
+			name: "page up snaps to first visible line when not on it",
+			modelFunc: func(m Model) Model {
+				m.ShowLineNumbers = true
+				m.SetHeight(4)
+				m.SetWidth(20)
+
+				lines := make([]string, 10)
+				for i := range 10 {
+					lines[i] = fmt.Sprintf("Line %d", i+1)
+				}
+				m.SetValue(strings.Join(lines, "\n"))
+				m.viewport.SetContent(m.view()) // force setting of viewport content.
+
+				m.row = 5
+				m.col = 0
+				m.viewport.SetYOffset(3)
+				m.PageUp()
+
+				return m
+			},
+			want: want{
+				view: heredoc.Doc(`
+					>   4 Line 4
+					>   5 Line 5
+					>   6 Line 6
+					>   7 Line 7
+				`),
+				cursorRow: 3,
+			},
+		},
+		{
+			name: "page up moves up by full page when on first visible line",
+			modelFunc: func(m Model) Model {
+				m.ShowLineNumbers = true
+				m.SetHeight(3)
+				m.SetWidth(20)
+
+				lines := make([]string, 10)
+				for i := range 10 {
+					lines[i] = fmt.Sprintf("Line %d", i+1)
+				}
+				m.SetValue(strings.Join(lines, "\n"))
+				m.viewport.SetContent(m.view()) // force setting of viewport content.
+
+				m.row = 5
+				m.col = 0
+				m.viewport.SetYOffset(5)
+				m.PageUp()
+
+				return m
+			},
+			want: want{
+				view: heredoc.Doc(`
+					>   3 Line 3
+					>   4 Line 4
+					>   5 Line 5
+				`),
+				cursorRow: 2,
+			},
+		},
+		{
+			name: "page down moves to end when near bottom",
+			modelFunc: func(m Model) Model {
+				m.SetHeight(3)
+				m.SetWidth(20)
+
+				lines := make([]string, 10)
+				for i := range 10 {
+					lines[i] = fmt.Sprintf("Line %d", i+1)
+				}
+				m.SetValue(strings.Join(lines, "\n"))
+				m.viewport.SetContent(m.view()) // force setting of viewport content.
+
+				m.row = 8
+				m.col = 0
+				m.viewport.SetYOffset(7)
+				m.PageDown()
+
+				return m
+			},
+			want: want{
+				view: heredoc.Doc(`
+					>   8 Line 8
+					>   9 Line 9
+					>  10 Line 10
+				`),
+				cursorRow: 9,
+			},
+		},
+		{
+			name: "page down snaps to last visible line when not on it",
+			modelFunc: func(m Model) Model {
+				m.SetHeight(3)
+				m.SetWidth(20)
+
+				lines := make([]string, 10)
+				for i := range 10 {
+					lines[i] = fmt.Sprintf("Line %d", i+1)
+				}
+				m.SetValue(strings.Join(lines, "\n"))
+				m.viewport.SetContent(m.view()) // force setting of viewport content.
+
+				m.row = 3
+				m.col = 0
+				m.viewport.SetYOffset(3)
+				m.PageDown()
+
+				return m
+			},
+			want: want{
+				view: heredoc.Doc(`
+					>   4 Line 4
+					>   5 Line 5
+					>   6 Line 6
+				`),
+				cursorRow: 5,
+			},
+		},
+		{
+			name: "page down moves down by full page when on last visible line",
+			modelFunc: func(m Model) Model {
+				m.SetHeight(3)
+				m.SetWidth(20)
+
+				lines := make([]string, 10)
+				for i := range 10 {
+					lines[i] = fmt.Sprintf("Line %d", i+1)
+				}
+				m.SetValue(strings.Join(lines, "\n"))
+				m.viewport.SetContent(m.view()) // force setting of viewport content.
+
+				m.row = 4
+				m.col = 0
+				m.viewport.SetYOffset(2)
+				m.PageDown()
+
+				return m
+			},
+			want: want{
+				view: heredoc.Doc(`
+					>   6 Line 6
+					>   7 Line 7
+					>   8 Line 8
+				`),
+				cursorRow: 7,
+			},
+		},
 	}
 
 	for _, tt := range tests {
-		tt := tt
-
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1699,6 +1915,478 @@ func TestView(t *testing.T) {
 				t.Fatalf(format, tt.want.cursorRow, tt.want.cursorCol, cursorRow, cursorCol)
 			}
 		})
+	}
+}
+
+func TestWord(t *testing.T) {
+	textarea := newTextArea()
+
+	textarea.SetHeight(3)
+	textarea.SetWidth(20)
+	textarea.CharLimit = 500
+
+	textarea, _ = textarea.Update(nil)
+
+	t.Run("regular input", func(t *testing.T) {
+		input := "Word1 Word2 Word3 Word4"
+		for _, k := range input {
+			textarea, _ = textarea.Update(keyPress(k))
+			textarea.View()
+		}
+
+		expect := "Word4"
+		if word := textarea.Word(); word != expect {
+			t.Fatalf("Expected last word to be '%s', got '%s'", expect, word)
+		}
+	})
+
+	t.Run("navigate", func(t *testing.T) {
+		for _, k := range []tea.KeyPressMsg{
+			{Code: tea.KeyLeft, Mod: tea.ModAlt, Text: "alt+left"},
+			{Code: tea.KeyLeft, Mod: tea.ModAlt, Text: "alt+left"},
+			{Code: tea.KeyRight, Text: "right"},
+		} {
+			textarea, _ = textarea.Update(k)
+			textarea.View()
+		}
+
+		expect := "Word3"
+		if word := textarea.Word(); word != expect {
+			t.Fatalf("Expected last word to be '%s', got '%s'", expect, word)
+		}
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		for _, k := range []tea.KeyPressMsg{
+			{Code: tea.KeyEnd, Text: "end"},
+			{Code: tea.KeyBackspace, Mod: tea.ModAlt, Text: "alt+backspace"},
+			{Code: tea.KeyBackspace, Mod: tea.ModAlt, Text: "alt+backspace"},
+			{Code: tea.KeyBackspace, Text: "backspace"},
+		} {
+			textarea, _ = textarea.Update(k)
+			textarea.View()
+		}
+
+		expect := "Word2"
+		if word := textarea.Word(); word != expect {
+			t.Fatalf("Expected last word to be '%s', got '%s'", expect, word)
+		}
+	})
+}
+
+func newDynamicTextArea(minH, maxH int) Model {
+	ta := New()
+	ta.Prompt = ""
+	ta.ShowLineNumbers = false
+	ta.DynamicHeight = true
+	ta.MinHeight = minH
+	ta.MaxHeight = maxH
+	ta.SetWidth(20)
+	ta.Focus()
+	ta, _ = ta.Update(nil)
+	return ta
+}
+
+func TestDynamicHeight_DefaultUnchanged(t *testing.T) {
+	ta := newTextArea()
+	ta.SetHeight(6)
+	ta.SetWidth(40)
+
+	for _, k := range "hello\nworld\n" {
+		ta, _ = ta.Update(keyPress(k))
+	}
+
+	if ta.Height() != 6 {
+		t.Errorf("expected static height 6, got %d", ta.Height())
+	}
+}
+
+func TestDynamicHeight_GrowsOnNewline(t *testing.T) {
+	ta := newDynamicTextArea(1, 20)
+
+	ta, _ = ta.Update(keyPress('a'))
+	if ta.Height() != 1 {
+		t.Errorf("expected height 1 after single char, got %d", ta.Height())
+	}
+
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	ta, _ = ta.Update(enter)
+	if ta.Height() != 2 {
+		t.Errorf("expected height 2 after first newline, got %d", ta.Height())
+	}
+
+	ta, _ = ta.Update(enter)
+	if ta.Height() != 3 {
+		t.Errorf("expected height 3 after second newline, got %d", ta.Height())
+	}
+}
+
+func TestDynamicHeight_GrowsOnSoftWrap(t *testing.T) {
+	ta := newDynamicTextArea(1, 20)
+	// width=20, so typing >20 chars should cause a soft wrap
+	input := "abcdefghijklmnopqrstuvwxyz"
+	for _, k := range input {
+		ta, _ = ta.Update(keyPress(k))
+	}
+
+	if ta.Height() < 2 {
+		t.Errorf("expected height >= 2 after soft wrap, got %d", ta.Height())
+	}
+}
+
+func TestDynamicHeight_ShrinksOnLineDeletion(t *testing.T) {
+	ta := newDynamicTextArea(1, 20)
+
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	ta, _ = ta.Update(keyPress('a'))
+	ta, _ = ta.Update(enter)
+	ta, _ = ta.Update(keyPress('b'))
+	ta, _ = ta.Update(enter)
+	ta, _ = ta.Update(keyPress('c'))
+
+	if ta.Height() != 3 {
+		t.Fatalf("expected height 3 before deletion, got %d", ta.Height())
+	}
+
+	// Backspace at start of line 3 merges with line 2
+	ta.CursorStart()
+	backspace := tea.KeyPressMsg{Code: tea.KeyBackspace}
+	ta, _ = ta.Update(backspace)
+
+	if ta.Height() != 2 {
+		t.Errorf("expected height 2 after line merge, got %d", ta.Height())
+	}
+}
+
+func TestDynamicHeight_RespectsMinHeight(t *testing.T) {
+	ta := newDynamicTextArea(5, 20)
+
+	ta, _ = ta.Update(keyPress('a'))
+
+	if ta.Height() != 5 {
+		t.Errorf("expected min height 5, got %d", ta.Height())
+	}
+}
+
+func TestDynamicHeight_RespectsMaxHeight(t *testing.T) {
+	ta := newDynamicTextArea(1, 5)
+
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	for range 10 {
+		ta, _ = ta.Update(keyPress('x'))
+		ta, _ = ta.Update(enter)
+	}
+
+	if ta.Height() != 5 {
+		t.Errorf("expected max height 5, got %d", ta.Height())
+	}
+}
+
+func TestDynamicHeight_GrowsOnPaste(t *testing.T) {
+	ta := newDynamicTextArea(1, 20)
+
+	paste := tea.PasteMsg{Content: "line1\nline2\nline3\nline4\nline5"}
+	ta, _ = ta.Update(paste)
+
+	if ta.Height() != 5 {
+		t.Errorf("expected height 5 after pasting 5 lines, got %d", ta.Height())
+	}
+}
+
+func TestDynamicHeight_RecalculatesOnSetWidth(t *testing.T) {
+	ta := newDynamicTextArea(1, 50)
+	ta.SetWidth(40)
+
+	// Insert a line that fits in 40 cols but wraps in 10 cols
+	ta.SetValue("abcdefghijklmnopqrstuvwxyz")
+
+	if ta.Height() != 1 {
+		t.Fatalf("expected height 1 at width 40, got %d", ta.Height())
+	}
+
+	ta.SetWidth(10)
+
+	if ta.Height() < 3 {
+		t.Errorf("expected height >= 3 after narrowing to width 10, got %d", ta.Height())
+	}
+}
+
+func TestDynamicHeight_RecalculatesOnSetValue(t *testing.T) {
+	ta := newDynamicTextArea(1, 20)
+
+	ta.SetValue("a\nb\nc\nd\ne")
+
+	if ta.Height() != 5 {
+		t.Errorf("expected height 5 after SetValue with 5 lines, got %d", ta.Height())
+	}
+}
+
+func TestDynamicHeight_CursorPositionAfterGrow(t *testing.T) {
+	ta := newDynamicTextArea(1, 20)
+
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	for i := range 5 {
+		ta, _ = ta.Update(keyPress(rune('a' + i)))
+		ta, _ = ta.Update(enter)
+	}
+	ta, _ = ta.Update(keyPress('f'))
+
+	// Cursor should be on the last line (row 5, 0-indexed)
+	if ta.Line() != 5 {
+		t.Errorf("expected cursor on row 5, got %d", ta.Line())
+	}
+
+	// Cursor visual line should be within the viewport
+	cursorLine := ta.cursorLineNumber()
+	minVisible := ta.viewport.YOffset()
+	maxVisible := minVisible + ta.viewport.Height() - 1
+	if cursorLine < minVisible || cursorLine > maxVisible {
+		t.Errorf("cursor line %d outside viewport [%d, %d]", cursorLine, minVisible, maxVisible)
+	}
+}
+
+func TestDynamicHeight_CursorPositionAfterShrink(t *testing.T) {
+	ta := newDynamicTextArea(1, 20)
+
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	for i := range 5 {
+		ta, _ = ta.Update(keyPress(rune('a' + i)))
+		ta, _ = ta.Update(enter)
+	}
+	ta, _ = ta.Update(keyPress('f'))
+
+	if ta.Height() != 6 {
+		t.Fatalf("expected height 6 before shrink, got %d", ta.Height())
+	}
+
+	// Delete lines by backspacing
+	backspace := tea.KeyPressMsg{Code: tea.KeyBackspace}
+	ta, _ = ta.Update(backspace) // delete 'f'
+	ta, _ = ta.Update(backspace) // merge line 5 into 4
+	ta, _ = ta.Update(backspace) // delete 'e'
+	ta, _ = ta.Update(backspace) // merge line 4 into 3
+
+	cursorLine := ta.cursorLineNumber()
+	minVisible := ta.viewport.YOffset()
+	maxVisible := minVisible + ta.viewport.Height() - 1
+	if cursorLine < minVisible || cursorLine > maxVisible {
+		t.Errorf("cursor line %d outside viewport [%d, %d] after shrink", cursorLine, minVisible, maxVisible)
+	}
+}
+
+func TestDynamicHeight_CursorPositionAfterPaste(t *testing.T) {
+	ta := newDynamicTextArea(1, 20)
+
+	paste := tea.PasteMsg{Content: "line1\nline2\nline3\nline4\nline5"}
+	ta, _ = ta.Update(paste)
+
+	// Cursor should be at the end of the last pasted line
+	if ta.Line() != 4 {
+		t.Errorf("expected cursor on row 4, got %d", ta.Line())
+	}
+
+	cursorLine := ta.cursorLineNumber()
+	minVisible := ta.viewport.YOffset()
+	maxVisible := minVisible + ta.viewport.Height() - 1
+	if cursorLine < minVisible || cursorLine > maxVisible {
+		t.Errorf("cursor line %d outside viewport [%d, %d] after paste", cursorLine, minVisible, maxVisible)
+	}
+}
+
+func TestMaxContentHeight_ScrollsBeyondMaxHeight(t *testing.T) {
+	ta := newDynamicTextArea(1, 5)
+	ta.MaxContentHeight = 10
+
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	for range 8 {
+		ta, _ = ta.Update(keyPress('x'))
+		ta, _ = ta.Update(enter)
+	}
+
+	if ta.Height() != 5 {
+		t.Errorf("expected visible height capped at 5, got %d", ta.Height())
+	}
+
+	if ta.LineCount() != 9 {
+		t.Errorf("expected 9 logical lines, got %d", ta.LineCount())
+	}
+}
+
+func TestMaxContentHeight_BlocksAtLimit(t *testing.T) {
+	ta := New()
+	ta.Prompt = ""
+	ta.ShowLineNumbers = false
+	ta.MaxContentHeight = 5
+	ta.SetWidth(20)
+	ta.Focus()
+	ta, _ = ta.Update(nil)
+
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	for range 10 {
+		ta, _ = ta.Update(keyPress('x'))
+		ta, _ = ta.Update(enter)
+	}
+
+	if ta.totalVisualLines() > 5 {
+		t.Errorf("expected total visual lines <= 5, got %d", ta.totalVisualLines())
+	}
+}
+
+func TestMaxContentHeight_BackwardCompat(t *testing.T) {
+	ta := New()
+	ta.Prompt = ""
+	ta.ShowLineNumbers = false
+	ta.MaxHeight = 10
+	ta.SetWidth(20)
+	ta.Focus()
+	ta, _ = ta.Update(nil)
+
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	for range 15 {
+		ta, _ = ta.Update(keyPress('x'))
+		ta, _ = ta.Update(enter)
+	}
+
+	if ta.LineCount() > 10 {
+		t.Errorf("expected logical line count <= 10 (legacy behavior), got %d", ta.LineCount())
+	}
+}
+
+func TestMaxContentHeight_WithoutDynamicHeight(t *testing.T) {
+	ta := New()
+	ta.Prompt = ""
+	ta.ShowLineNumbers = false
+	ta.MaxContentHeight = 5
+	ta.SetHeight(3)
+	ta.SetWidth(20)
+	ta.Focus()
+	ta, _ = ta.Update(nil)
+
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	for range 10 {
+		ta, _ = ta.Update(keyPress('x'))
+		ta, _ = ta.Update(enter)
+	}
+
+	if ta.Height() != 3 {
+		t.Errorf("expected fixed height 3, got %d", ta.Height())
+	}
+
+	if ta.totalVisualLines() > 5 {
+		t.Errorf("expected content capped at 5 visual lines, got %d", ta.totalVisualLines())
+	}
+}
+
+func TestMaxContentHeight_CursorVisibleWhileScrolling(t *testing.T) {
+	ta := newDynamicTextArea(1, 5)
+	ta.MaxContentHeight = 10
+
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	for range 8 {
+		ta, _ = ta.Update(keyPress('x'))
+		ta, _ = ta.Update(enter)
+	}
+	ta, _ = ta.Update(keyPress('y'))
+
+	cursorLine := ta.cursorLineNumber()
+	minVisible := ta.viewport.YOffset()
+	maxVisible := minVisible + ta.viewport.Height() - 1
+	if cursorLine < minVisible || cursorLine > maxVisible {
+		t.Errorf("cursor line %d outside viewport [%d, %d] while scrolling", cursorLine, minVisible, maxVisible)
+	}
+}
+
+func TestMaxContentHeight_PasteCapped(t *testing.T) {
+	ta := New()
+	ta.Prompt = ""
+	ta.ShowLineNumbers = false
+	ta.MaxContentHeight = 5
+	ta.SetWidth(20)
+	ta.Focus()
+	ta, _ = ta.Update(nil)
+
+	paste := tea.PasteMsg{Content: "1\n2\n3\n4\n5\n6\n7\n8\n9\n10"}
+	ta, _ = ta.Update(paste)
+
+	if ta.totalVisualLines() > 5 {
+		t.Errorf("expected paste capped at 5 visual lines, got %d", ta.totalVisualLines())
+	}
+}
+
+func TestDynamicHeight_ShrinksWhenScrolledAndLinesDeleted(t *testing.T) {
+	ta := newDynamicTextArea(1, 5)
+	ta.MaxContentHeight = 10
+
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	// Type 8 lines so we exceed MaxHeight (5) and start scrolling
+	for range 7 {
+		ta, _ = ta.Update(keyPress('x'))
+		ta, _ = ta.Update(enter)
+	}
+	ta, _ = ta.Update(keyPress('x'))
+
+	if ta.Height() != 5 {
+		t.Fatalf("expected height 5 (capped at MaxHeight), got %d", ta.Height())
+	}
+	if ta.LineCount() != 8 {
+		t.Fatalf("expected 8 lines, got %d", ta.LineCount())
+	}
+
+	// Now delete lines from the bottom by selecting all on current line and backspacing
+	backspace := tea.KeyPressMsg{Code: tea.KeyBackspace}
+	for ta.LineCount() > 4 {
+		ta.CursorEnd()
+		for len(ta.value[ta.row]) > 0 {
+			ta, _ = ta.Update(backspace)
+		}
+		ta, _ = ta.Update(backspace) // merge with previous line
+	}
+
+	// Now we have 4 lines, which is less than MaxHeight (5).
+	// Height should shrink to 4.
+	if ta.Height() != 4 {
+		t.Errorf("expected height to shrink to 4 (matching content), got %d", ta.Height())
+	}
+	if ta.viewport.YOffset() != 0 {
+		t.Errorf("expected yOffset 0 after shrinking, got %d", ta.viewport.YOffset())
+	}
+}
+
+func TestDynamicHeight_ShrinksWhenScrolledNoMaxContent(t *testing.T) {
+	// DynamicHeight with MaxHeight but no MaxContentHeight
+	ta := newDynamicTextArea(1, 99)
+
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	// Type 8 lines
+	for range 7 {
+		ta, _ = ta.Update(keyPress('x'))
+		ta, _ = ta.Update(enter)
+	}
+	ta, _ = ta.Update(keyPress('x'))
+
+	if ta.Height() != 8 {
+		t.Fatalf("expected height 8, got %d", ta.Height())
+	}
+
+	// Manually set a smaller MaxHeight to simulate scrolling scenario
+	ta.MaxHeight = 5
+	ta, _ = ta.Update(nil)
+
+	// Now delete lines from the bottom
+	backspace := tea.KeyPressMsg{Code: tea.KeyBackspace}
+	for ta.LineCount() > 3 {
+		ta.CursorEnd()
+		for len(ta.value[ta.row]) > 0 {
+			ta, _ = ta.Update(backspace)
+		}
+		ta, _ = ta.Update(backspace)
+	}
+
+	if ta.Height() != 3 {
+		t.Errorf("expected height to shrink to 3 (matching content), got %d", ta.Height())
+	}
+	if ta.viewport.YOffset() != 0 {
+		t.Errorf("expected yOffset 0 after shrinking, got %d", ta.viewport.YOffset())
 	}
 }
 
